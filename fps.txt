@@ -1,0 +1,900 @@
+-- MALEK FPS HUB
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Lighting = game:GetService("Lighting")
+
+local State = {
+    esp = false,
+    showName = true,
+    showDistance = true,
+    showHealth = true,
+    showTracer = true,
+    showBox = true,
+    teamCheck = false,
+    maxDistance = 500,
+    aimLock = false,
+    bodyLock = false,
+    silentAim = false,
+    autoShoot = false,
+    triggerBot = false,
+    fov = 200,
+    smooth = 0.35,
+    walkSpeed = false,
+    walkSpeedValue = 60,
+    jumpPower = false,
+    jumpPowerValue = 100,
+    infiniteJump = false,
+    fly = false,
+    flySpeed = 60,
+    noClip = false,
+    antiDie = false,
+    antiAFK = false,
+    antiRagdoll = false,
+    fullBright = false,
+    darkMode = false,
+    fovChanger = false,
+    fovChangerValue = 120,
+    crosshair = false,
+    watermark = true,
+    highlights = {},
+    billboards = {},
+    tracers = {},
+    boxes = {},
+    flyVelocity = nil,
+    origWalkSpeed = 16,
+    origJumpPower = 50,
+}
+
+local function isTeammate(plr)
+    if not State.teamCheck then return false end
+    if not LP.Team or not plr.Team then return false end
+    return LP.Team == plr.Team
+end
+
+local function getTarget()
+    local char = LP.Character
+    if not char then return nil end
+    local myRoot = char:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    local closest, minDist = nil, State.fov
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character and not isTeammate(plr) then
+            local tRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            local tHum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if tRoot and tHum and tHum.Health > 0 then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(tRoot.Position)
+                if onScreen then
+                    local cx, cy = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
+                    local dist = math.sqrt((screenPos.X - cx)^2 + (screenPos.Y - cy)^2)
+                    if dist < minDist then
+                        minDist = dist
+                        closest = plr.Character
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function removeESP(plr)
+    if State.highlights[plr] then
+        pcall(function() State.highlights[plr]:Destroy() end)
+        State.highlights[plr] = nil
+    end
+    if State.billboards[plr] then
+        pcall(function() State.billboards[plr]:Destroy() end)
+        State.billboards[plr] = nil
+    end
+    if State.tracers[plr] then
+        pcall(function() State.tracers[plr].Visible = false; State.tracers[plr]:Remove() end)
+        State.tracers[plr] = nil
+    end
+    if State.boxes[plr] then
+        for _, line in ipairs(State.boxes[plr]) do
+            pcall(function() line.Visible = false; line:Remove() end)
+        end
+        State.boxes[plr] = nil
+    end
+end
+
+local function clearAllESP()
+    for plr, _ in pairs(State.highlights) do removeESP(plr) end
+    State.highlights = {}
+    State.billboards = {}
+    State.tracers = {}
+    State.boxes = {}
+end
+
+local function addESP(plr)
+    if plr == LP or not plr.Character or State.highlights[plr] then return end
+    if isTeammate(plr) then return end
+    local char = plr.Character
+    local head = char:FindFirstChild("Head")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255, 50, 50)
+    hl.FillTransparency = 0.5
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = char
+    hl.Parent = char
+    State.highlights[plr] = hl
+    
+    if head then
+        local bb = Instance.new("BillboardGui")
+        bb.Size = UDim2.new(0, 200, 0, 60)
+        bb.StudsOffset = Vector3.new(0, 3.5, 0)
+        bb.AlwaysOnTop = true
+        bb.LightInfluence = 0
+        bb.Adornee = head
+        bb.Parent = head
+        
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Name = "Name"
+        nameLbl.Size = UDim2.new(1, 0, 0, 20)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = plr.Name
+        nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        nameLbl.TextStrokeTransparency = 0
+        nameLbl.Font = Enum.Font.GothamBlack
+        nameLbl.TextSize = 14
+        nameLbl.Parent = bb
+        
+        local distLbl = Instance.new("TextLabel")
+        distLbl.Name = "Dist"
+        distLbl.Size = UDim2.new(1, 0, 0, 16)
+        distLbl.Position = UDim2.new(0, 0, 0, 20)
+        distLbl.BackgroundTransparency = 1
+        distLbl.Text = "0m"
+        distLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+        distLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        distLbl.TextStrokeTransparency = 0
+        distLbl.Font = Enum.Font.GothamBold
+        distLbl.TextSize = 12
+        distLbl.Parent = bb
+        
+        local hpLbl = Instance.new("TextLabel")
+        hpLbl.Name = "HP"
+        hpLbl.Size = UDim2.new(1, 0, 0, 16)
+        hpLbl.Position = UDim2.new(0, 0, 0, 36)
+        hpLbl.BackgroundTransparency = 1
+        hpLbl.Text = "HP: 100"
+        hpLbl.TextColor3 = Color3.fromRGB(100, 255, 100)
+        hpLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        hpLbl.TextStrokeTransparency = 0
+        hpLbl.Font = Enum.Font.GothamBold
+        hpLbl.TextSize = 12
+        hpLbl.Parent = bb
+        
+        State.billboards[plr] = bb
+    end
+end
+
+local function makeTracer(plr)
+    if not Drawing or State.tracers[plr] then return end
+    local line = Drawing.new("Line")
+    line.Color = Color3.fromRGB(255, 255, 255)
+    line.Thickness = 1.5
+    line.Transparency = 0.8
+    line.Visible = false
+    State.tracers[plr] = line
+end
+
+local function makeBox(plr)
+    if not Drawing or State.boxes[plr] then return end
+    local lines = {}
+    for i = 1, 4 do
+        local line = Drawing.new("Line")
+        line.Color = Color3.fromRGB(255, 255, 255)
+        line.Thickness = 2
+        line.Transparency = 0.9
+        line.Visible = false
+        table.insert(lines, line)
+    end
+    State.boxes[plr] = lines
+end
+
+local function updateBox(plr, char)
+    if not Drawing or not State.showBox then return end
+    if not State.boxes[plr] then makeBox(plr) end
+    local lines = State.boxes[plr]
+    if not lines then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+    if not onScreen or pos.Z <= 0 then
+        for _, line in ipairs(lines) do line.Visible = false end
+        return
+    end
+    local scale = Camera.ViewportSize.Y / (2 * math.tan(math.rad(Camera.FieldOfView / 2))) / pos.Z
+    local height = 3.5 * scale
+    local width = 2 * scale
+    local x = pos.X - width / 2
+    local y = pos.Y - height / 2
+    lines[1].From = Vector2.new(x, y); lines[1].To = Vector2.new(x + width, y); lines[1].Visible = true
+    lines[2].From = Vector2.new(x + width, y); lines[2].To = Vector2.new(x + width, y + height); lines[2].Visible = true
+    lines[3].From = Vector2.new(x + width, y + height); lines[3].To = Vector2.new(x, y + height); lines[3].Visible = true
+    lines[4].From = Vector2.new(x, y + height); lines[4].To = Vector2.new(x, y); lines[4].Visible = true
+end
+
+-- ESP Loop
+RunService.RenderStepped:Connect(function()
+    if not State.esp then return end
+    local myChar = LP.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            local char = plr.Character
+            local head = char:FindFirstChild("Head")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local tRoot = char:FindFirstChild("HumanoidRootPart")
+            if head and hum and hum.Health > 0 and tRoot then
+                local dist = (myRoot.Position - tRoot.Position).Magnitude
+                if dist > State.maxDistance then
+                    if State.highlights[plr] then State.highlights[plr].Enabled = false end
+                    if State.billboards[plr] then State.billboards[plr].Enabled = false end
+                    if State.tracers[plr] then State.tracers[plr].Visible = false end
+                    if State.boxes[plr] then for _, line in ipairs(State.boxes[plr]) do line.Visible = false end end
+                else
+                    if not State.highlights[plr] or not State.highlights[plr].Parent then addESP(plr) end
+                    if State.highlights[plr] then State.highlights[plr].Enabled = not isTeammate(plr) end
+                    local bb = State.billboards[plr]
+                    if bb then
+                        bb.Enabled = true
+                        local nameLbl = bb:FindFirstChild("Name")
+                        local distLbl = bb:FindFirstChild("Dist")
+                        local hpLbl = bb:FindFirstChild("HP")
+                        if nameLbl then nameLbl.Visible = State.showName; nameLbl.Text = plr.Name end
+                        if distLbl then distLbl.Visible = State.showDistance; distLbl.Text = math.floor(dist) .. "m" end
+                        if hpLbl then
+                            hpLbl.Visible = State.showHealth
+                            hpLbl.Text = "HP: " .. math.floor(hum.Health)
+                            local r = hum.Health / hum.MaxHealth
+                            hpLbl.TextColor3 = Color3.fromRGB(255 * (1-r), 255 * r, 100)
+                        end
+                    end
+                    if State.showTracer and Drawing then
+                        if not State.tracers[plr] then makeTracer(plr) end
+                        local tr = State.tracers[plr]
+                        if tr then
+                            local sp, os = Camera:WorldToViewportPoint(tRoot.Position)
+                            if os and sp.Z > 0 then
+                                tr.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                                tr.To = Vector2.new(sp.X, sp.Y)
+                                tr.Visible = true
+                            else
+                                tr.Visible = false
+                            end
+                        end
+                    end
+                    if State.showBox then updateBox(plr, char) end
+                end
+            else
+                if State.highlights[plr] then State.highlights[plr].Enabled = false end
+                if State.billboards[plr] then State.billboards[plr].Enabled = false end
+                if State.tracers[plr] then State.tracers[plr].Visible = false end
+                if State.boxes[plr] then for _, line in ipairs(State.boxes[plr]) do line.Visible = false end end
+            end
+        end
+    end
+end)
+
+-- Auto Refresh
+local function refreshPlayer(plr)
+    if plr == LP or not plr.Character then return end
+    removeESP(plr)
+    task.wait(0.1)
+    addESP(plr)
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if State.esp then refreshPlayer(plr) end
+    end)
+end)
+Players.PlayerRemoving:Connect(removeESP)
+
+task.spawn(function()
+    while task.wait(1.5) do
+        if not State.esp then continue end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP then
+                if plr.Character then
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        if not State.highlights[plr] or not State.highlights[plr].Parent then refreshPlayer(plr) end
+                    else
+                        if State.highlights[plr] then removeESP(plr) end
+                    end
+                else
+                    if State.highlights[plr] then removeESP(plr) end
+                end
+            end
+        end
+    end
+end)
+
+-- Aim Lock + Body Lock + Silent Aim
+RunService.RenderStepped:Connect(function()
+    if not State.aimLock and not State.bodyLock and not State.silentAim then return end
+    local char = LP.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    local myRoot = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not head or not myRoot or not hum then return end
+    if hum.Health <= 0 then return end
+    
+    local target = getTarget()
+    if not target then return end
+    local tRoot = target:FindFirstChild("HumanoidRootPart")
+    if not tRoot then return end
+    
+    local dir = tRoot.Position - myRoot.Position
+    local flatDir = Vector3.new(dir.X, 0, dir.Z)
+    if flatDir.Magnitude < 0.1 then return end
+    
+    if State.bodyLock then
+        pcall(function()
+            head.CFrame = head.CFrame:Lerp(CFrame.new(head.Position, head.Position + flatDir.Unit), State.smooth)
+        end)
+    end
+    
+    if hum.AutoRotate ~= false then hum.AutoRotate = false end
+    local rootPos = myRoot.Position
+    local newCF = CFrame.lookAt(rootPos, rootPos + flatDir.Unit)
+    myRoot.CFrame = myRoot.CFrame:Lerp(newCF, State.smooth)
+    
+    if State.aimLock or State.silentAim then
+        if Camera.CameraSubject == head or Camera.CameraSubject == hum then
+            local camPos = Camera.CFrame.Position
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(camPos, camPos + flatDir.Unit), State.smooth)
+        end
+    end
+end)
+
+-- Auto Shoot + Trigger Bot
+RunService.Heartbeat:Connect(function()
+    if not State.autoShoot and not State.triggerBot then return end
+    local target = getTarget()
+    if not target then return end
+    local char = LP.Character
+    if not char then return end
+    
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
+    
+    if State.triggerBot then
+        local tRoot = target:FindFirstChild("HumanoidRootPart")
+        if tRoot then
+            local sp = Camera:WorldToViewportPoint(tRoot.Position)
+            local cx, cy = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
+            local dist = math.sqrt((sp.X - cx)^2 + (sp.Y - cy)^2)
+            if dist < 10 then
+                pcall(function()
+                    if mouse1click then mouse1click() end
+                end)
+            end
+        end
+    end
+end)
+
+-- Walk Speed + Jump Power
+RunService.Heartbeat:Connect(function()
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if State.walkSpeed then
+        hum.WalkSpeed = State.walkSpeedValue
+    else
+        hum.WalkSpeed = State.origWalkSpeed
+    end
+    if State.jumpPower then
+        hum.JumpPower = State.jumpPowerValue
+    elseif hum.UseJumpPower then
+        hum.JumpPower = State.origJumpPower
+    end
+end)
+
+-- Infinite Jump
+UIS.JumpRequest:Connect(function()
+    if not State.infiniteJump then return end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not State.infiniteJump then return end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+    if hum:GetState() == Enum.HumanoidStateType.Freefall or hum:GetState() == Enum.HumanoidStateType.Jumping then
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then
+            root.Velocity = Vector3.new(root.Velocity.X, 55, root.Velocity.Z)
+        end
+    end
+end)
+
+-- Fly
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        if State.fly then
+            State.fly = false
+            if State.flyVelocity then State.flyVelocity:Destroy(); State.flyVelocity = nil end
+        else
+            State.fly = true
+            local char = LP.Character
+            if not char then return end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+            State.flyVelocity = Instance.new("BodyVelocity")
+            State.flyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            State.flyVelocity.Velocity = Vector3.zero
+            State.flyVelocity.Parent = root
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not State.fly then return end
+    local char = LP.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root or not State.flyVelocity then return end
+    local dir = Vector3.zero
+    if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+    if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+    if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+    if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+    if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+    if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0, 1, 0) end
+    State.flyVelocity.Velocity = dir * State.flySpeed
+end)
+
+-- No Clip
+RunService.Stepped:Connect(function()
+    if not State.noClip then return end
+    local char = LP.Character
+    if not char then return end
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+    end
+end)
+
+-- Anti Die
+RunService.Heartbeat:Connect(function()
+    if not State.antiDie then return end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health < hum.MaxHealth * 0.95 then hum.Health = hum.MaxHealth end
+end)
+
+-- Anti Ragdoll
+RunService.Heartbeat:Connect(function()
+    if not State.antiRagdoll then return end
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+    local st = hum:GetState()
+    if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.Ragdoll or st == Enum.HumanoidStateType.FallingDown then
+        pcall(function()
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            hum.PlatformStand = false
+            hum.Sit = false
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            workspace.CurrentCamera.CameraSubject = hum
+        end)
+    end
+end)
+
+-- Anti AFK
+task.spawn(function()
+    while task.wait(60) do
+        if State.antiAFK then
+            pcall(function()
+                if VirtualUser then
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
+                end
+            end)
+        end
+    end
+end)
+
+-- Full Bright
+RunService.Heartbeat:Connect(function()
+    if not State.fullBright then return end
+    Lighting.Brightness = 3
+    Lighting.ClockTime = 12
+    Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+    Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+end)
+
+-- Dark Mode
+RunService.Heartbeat:Connect(function()
+    if not State.darkMode then return end
+    Lighting.Brightness = 0
+    Lighting.ClockTime = 0
+    Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+    Lighting.OutdoorAmbient = Color3.fromRGB(0, 0, 0)
+end)
+
+-- FOV Changer
+RunService.RenderStepped:Connect(function()
+    if not State.fovChanger then return end
+    Camera.FieldOfView = State.fovChangerValue
+end)
+
+-- Crosshair
+local crossGui = Instance.new("ScreenGui")
+crossGui.Name = "MalekCrosshair"
+crossGui.ResetOnSpawn = false
+crossGui.DisplayOrder = 9997
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(crossGui) end end)
+local okCr = pcall(function() crossGui.Parent = game:GetService("CoreGui") end)
+if not okCr then crossGui.Parent = LP:WaitForChild("PlayerGui") end
+
+local crH = Instance.new("Frame")
+crH.Size = UDim2.new(0, 12, 0, 2)
+crH.Position = UDim2.new(0.5, -6, 0.5, -1)
+crH.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+crH.BorderSizePixel = 0
+crH.Visible = false
+crH.Parent = crossGui
+
+local crV = Instance.new("Frame")
+crV.Size = UDim2.new(0, 2, 0, 12)
+crV.Position = UDim2.new(0.5, -1, 0.5, -6)
+crV.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+crV.BorderSizePixel = 0
+crV.Visible = false
+crV.Parent = crossGui
+
+RunService.RenderStepped:Connect(function()
+    if State.crosshair then
+        crH.Visible = true
+        crV.Visible = true
+    else
+        crH.Visible = false
+        crV.Visible = false
+    end
+end)
+
+-- Watermark
+local wmGui = Instance.new("ScreenGui")
+wmGui.Name = "MalekWatermark"
+wmGui.ResetOnSpawn = false
+wmGui.DisplayOrder = 9998
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(wmGui) end end)
+local okWm = pcall(function() wmGui.Parent = game:GetService("CoreGui") end)
+if not okWm then wmGui.Parent = LP:WaitForChild("PlayerGui") end
+
+local wmFrame = Instance.new("Frame")
+wmFrame.Size = UDim2.new(0, 200, 0, 30)
+wmFrame.Position = UDim2.new(0, 10, 0, 10)
+wmFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+wmFrame.BorderSizePixel = 0
+wmFrame.Parent = wmGui
+
+local wmC = Instance.new("UICorner")
+wmC.CornerRadius = UDim.new(0, 8)
+wmC.Parent = wmFrame
+
+local wmS = Instance.new("UIStroke")
+wmS.Color = Color3.fromRGB(60, 60, 60)
+wmS.Thickness = 1
+wmS.Parent = wmFrame
+
+local wmLabel = Instance.new("TextLabel")
+wmLabel.Size = UDim2.new(1, 0, 1, 0)
+wmLabel.BackgroundTransparency = 1
+wmLabel.Text = "MALEK HUB | FPS: -- | Ping: --"
+wmLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+wmLabel.Font = Enum.Font.GothamBold
+wmLabel.TextSize = 11
+wmLabel.Parent = wmFrame
+
+task.spawn(function()
+    local frames, timeAcc = 0, 0
+    RunService.Heartbeat:Connect(function(dt)
+        if not State.watermark then
+            wmFrame.Visible = false
+            return
+        end
+        wmFrame.Visible = true
+        frames = frames + 1
+        timeAcc = timeAcc + dt
+        if timeAcc >= 0.5 then
+            local fps = math.floor(frames / timeAcc + 0.5)
+            local ping = 0
+            pcall(function() ping = math.floor(LP:GetNetworkPing() * 1000 + 0.5) end)
+            wmLabel.Text = string.format("MALEK HUB | FPS: %d | Ping: %d", fps, ping)
+            frames = 0
+            timeAcc = 0
+        end
+    end)
+end)
+
+-- UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MalekFPS"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 9999
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(ScreenGui) end end)
+local okGui = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not okGui then ScreenGui.Parent = LP:WaitForChild("PlayerGui") end
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 240, 0, 420)
+Main.Position = UDim2.new(0, 20, 0.5, -210)
+Main.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Parent = ScreenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.Parent = Main
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(60, 60, 60)
+mainStroke.Thickness = 1.5
+mainStroke.Parent = Main
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 40)
+Header.BackgroundTransparency = 1
+Header.Parent = Main
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -20, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "MALEK FPS HUB"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+local Divider = Instance.new("Frame")
+Divider.Size = UDim2.new(1, -20, 0, 1)
+Divider.Position = UDim2.new(0, 10, 0, 40)
+Divider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+Divider.BorderSizePixel = 0
+Divider.Parent = Main
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -20, 1, -50)
+Scroll.Position = UDim2.new(0, 10, 0, 45)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 60)
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = Main
+
+local Layout = Instance.new("UIListLayout")
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Padding = UDim.new(0, 5)
+Layout.Parent = Scroll
+
+local function makeToggle(parent, label, default, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 38)
+    row.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    local rc = Instance.new("UICorner")
+    rc.CornerRadius = UDim.new(0, 8)
+    rc.Parent = row
+    local rs = Instance.new("UIStroke")
+    rs.Color = Color3.fromRGB(60, 60, 60)
+    rs.Thickness = 1
+    rs.Parent = row
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.65, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(0, 34, 0, 18)
+    track.Position = UDim2.new(1, -46, 0.5, -9)
+    track.BackgroundColor3 = default and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(45, 45, 45)
+    track.BorderSizePixel = 0
+    track.Parent = row
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(0, 9)
+    tc.Parent = track
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = default and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+    knob.BackgroundColor3 = default and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = track
+    local kc = Instance.new("UICorner")
+    kc.CornerRadius = UDim.new(0, 7)
+    kc.Parent = knob
+    local state = default
+    local click = Instance.new("TextButton")
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.BackgroundTransparency = 1
+    click.Text = ""
+    click.Parent = row
+    click.MouseButton1Click:Connect(function()
+        state = not state
+        track.BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(45, 45, 45)
+        knob.Position = state and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+        knob.BackgroundColor3 = state and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+        rs.Color = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(60, 60, 60)
+        if callback then callback(state) end
+    end)
+end
+
+local function makeInput(parent, label, default, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 38)
+    row.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    local rc = Instance.new("UICorner")
+    rc.CornerRadius = UDim.new(0, 8)
+    rc.Parent = row
+    local rs = Instance.new("UIStroke")
+    rs.Color = Color3.fromRGB(60, 60, 60)
+    rs.Thickness = 1
+    rs.Parent = row
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0, 60, 0, 24)
+    box.Position = UDim2.new(1, -72, 0.5, -12)
+    box.BackgroundColor3 = Color3.fromRGB(14, 14, 14)
+    box.BorderSizePixel = 0
+    box.Text = tostring(default)
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.Font = Enum.Font.GothamBold
+    box.TextSize = 11
+    box.ClearTextOnFocus = false
+    box.Parent = row
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(0, 6)
+    bc.Parent = box
+    box.FocusLost:Connect(function()
+        local n = tonumber(box.Text)
+        if n and callback then callback(n) end
+    end)
+end
+
+local function makeSection(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 20)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "── " .. text .. " ──"
+    lbl.TextColor3 = Color3.fromRGB(150, 150, 150)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.Parent = parent
+end
+
+-- ESP Section
+makeSection(Scroll, "ESP")
+makeToggle(Scroll, "ESP ON/OFF", false, function(on)
+    State.esp = on
+    if on then
+        for _, plr in ipairs(Players:GetPlayers()) do addESP(plr) end
+    else
+        clearAllESP()
+    end
+end)
+makeToggle(Scroll, "Show Name", true, function(on) State.showName = on end)
+makeToggle(Scroll, "Show Distance", true, function(on) State.showDistance = on end)
+makeToggle(Scroll, "Show Health", true, function(on) State.showHealth = on end)
+makeToggle(Scroll, "Show Tracer", true, function(on) State.showTracer = on end)
+makeToggle(Scroll, "Show Box", true, function(on) State.showBox = on end)
+makeToggle(Scroll, "Team Check", false, function(on)
+    State.teamCheck = on
+    clearAllESP()
+    if State.esp then for _, plr in ipairs(Players:GetPlayers()) do addESP(plr) end end
+end)
+makeInput(Scroll, "Max Distance", 500, function(n) if n > 0 then State.maxDistance = n end end)
+
+-- Combat Section
+makeSection(Scroll, "COMBAT")
+makeToggle(Scroll, "Aim Lock", false, function(on) State.aimLock = on end)
+makeToggle(Scroll, "Body Lock", false, function(on) State.bodyLock = on end)
+makeToggle(Scroll, "Silent Aim", false, function(on) State.silentAim = on end)
+makeToggle(Scroll, "Auto Shoot", false, function(on) State.autoShoot = on end)
+makeToggle(Scroll, "Trigger Bot", false, function(on) State.triggerBot = on end)
+makeInput(Scroll, "FOV", 200, function(n) if n > 0 then State.fov = n end end)
+
+-- Movement Section
+makeSection(Scroll, "MOVEMENT")
+makeToggle(Scroll, "Walk Speed", false, function(on) State.walkSpeed = on end)
+makeInput(Scroll, "Speed Value", 60, function(n) if n > 0 then State.walkSpeedValue = n end end)
+makeToggle(Scroll, "Jump Power", false, function(on) State.jumpPower = on end)
+makeInput(Scroll, "Jump Value", 100, function(n) if n > 0 then State.jumpPowerValue = n end end)
+makeToggle(Scroll, "Infinite Jump", false, function(on) State.infiniteJump = on end)
+makeToggle(Scroll, "Fly (Press F)", false, function(on)
+    State.fly = on
+    if not on and State.flyVelocity then
+        State.flyVelocity:Destroy()
+        State.flyVelocity = nil
+    end
+end)
+makeToggle(Scroll, "No Clip", false, function(on) State.noClip = on end)
+
+-- Defense Section
+makeSection(Scroll, "DEFENSE")
+makeToggle(Scroll, "Anti Die", false, function(on) State.antiDie = on end)
+makeToggle(Scroll, "Anti AFK", false, function(on) State.antiAFK = on end)
+makeToggle(Scroll, "Anti Ragdoll", false, function(on) State.antiRagdoll = on end)
+
+-- Visual Section
+makeSection(Scroll, "VISUAL")
+makeToggle(Scroll, "Full Bright", false, function(on) State.fullBright = on end)
+makeToggle(Scroll, "Dark Mode", false, function(on) State.darkMode = on end)
+makeToggle(Scroll, "FOV Changer", false, function(on) State.fovChanger = on end)
+makeInput(Scroll, "FOV Value", 120, function(n) if n > 0 then State.fovChangerValue = n end end)
+makeToggle(Scroll, "Crosshair", false, function(on) State.crosshair = on end)
+makeToggle(Scroll, "Watermark", true, function(on) State.watermark = on end)
+
+-- Drag
+local dragging, dragStart, startPos
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+print("[MALEK FPS HUB] Loaded OK")
