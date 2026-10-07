@@ -1,3 +1,29 @@
+-- ═══════════════════════════════════════════════════════════════
+-- ANTI-LEAK PROTECTION
+-- ═══════════════════════════════════════════════════════════════
+local function __isExecutor()
+    local c = 0
+    if type(getgenv) == "function" then c = c + 1 end
+    if type(identifyexecutor) == "function" then c = c + 1 end
+    if type(hookfunction) == "function" then c = c + 1 end
+    if type(getrawmetatable) == "function" then c = c + 1 end
+    if type(setclipboard) == "function" then c = c + 1 end
+    if type(request) == "function" or type(http_request) == "function" then c = c + 1 end
+    return c >= 4
+end
+local function __isRoblox()
+    return (type(game) == "userdata" or type(game) == "table")
+        and type(game.GetService) == "function"
+        and type(workspace) ~= "nil"
+        and type(Players) ~= "nil"
+end
+if not __isExecutor() or not __isRoblox() then
+    return "no"
+end
+-- ═══════════════════════════════════════════════════════════════
+-- END OF PROTECTION
+-- ═══════════════════════════════════════════════════════════════
+
 -- MALEK FPS HUB
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
